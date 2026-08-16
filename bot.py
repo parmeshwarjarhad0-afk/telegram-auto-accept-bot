@@ -27,7 +27,7 @@ broadcast_col = db["last_broadcast"]
 app = Client("auto_accept_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Defaults
-DEFAULT_WELCOME = "नमस्कार! चॅनलमधील तुमची विनंती स्वीकारली गेली आहे. खाली दिलेल्या बॅकअप चॅनलला नक्की जॉईन करा."
+DEFAULT_WELCOME = "नमस्कार! चॅनलमधील तुमची विनंती स्वीकारली गेली आहे."
 DEFAULT_BACKUP = "https://t.me/+zBROkdncuC5iMzdl"
 
 async def get_settings():
@@ -65,32 +65,43 @@ def is_admin(_, __, message: Message):
     return message.from_user and message.from_user.id == ADMIN_ID
 
 
-# 1. AUTO ACCEPT JOIN REQUESTS
+# 1. AUTO ACCEPT JOIN REQUESTS (With Verify Button)
 @app.on_chat_join_request()
 async def auto_accept(client: Client, req: ChatJoinRequest):
     user_id = req.from_user.id
     chat_id = req.chat.id
     
-    # User ID Database मध्ये कायमस्वरूपी save करणे
+    # 1. Database मध्ये user कायमस्वरूपी save करणे
     await users_col.update_one({"user_id": user_id}, {"$set": {"user_id": user_id}}, upsert=True)
     
-    # Request Accept करणे
+    # 2. Request Accept करणे
     try:
         await client.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
     except Exception as e:
         print(f"Approve Error: {e}")
 
-    # Welcome Message व Backup Link पाठवणे
+    # 3. Welcome Message, Verify Button व Backup Link पाठवणे
     settings = await get_settings()
     welcome_text = settings.get("welcome", DEFAULT_WELCOME)
     backup_link = settings.get("backup", DEFAULT_BACKUP)
     
-    buttons = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Join Backup Channel", url=backup_link)]])
+    bot_info = await client.get_me()
+    bot_username = bot_info.username
+    verify_link = f"https://t.me/{bot_username}?start=verified"
+
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Verify Account / Start Chat", url=verify_link)],
+        [InlineKeyboardButton("🔗 Join Backup Channel", url=backup_link)]
+    ])
     
     try:
         await client.send_message(
             chat_id=user_id,
-            text=f"{welcome_text}\n\n👉 **Backup Channel:** {backup_link}",
+            text=(
+                f"{welcome_text}\n\n"
+                f"⚠️ **महत्त्वाचे:** पुढील सर्व अपडेट्स अखंड मिळवण्यासाठी खालील **'Verify Account'** बटणावर नक्की क्लिक करा.\n\n"
+                f"👉 **Backup Channel:** {backup_link}"
+            ),
             reply_markup=buttons,
             disable_web_page_preview=True
         )
@@ -104,7 +115,18 @@ async def auto_accept(client: Client, req: ChatJoinRequest):
 async def start_cmd(client: Client, message: Message):
     user_id = message.from_user.id
     await users_col.update_one({"user_id": user_id}, {"$set": {"user_id": user_id}}, upsert=True)
-    await message.reply_text("👋 हा Bot चॅनलच्या सर्व Join Requests आपोआप accept करतो.")
+    
+    if len(message.command) > 1 and message.command[1] == "verified":
+        settings = await get_settings()
+        backup_link = settings.get("backup", DEFAULT_BACKUP)
+        buttons = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Join Backup Channel", url=backup_link)]])
+        
+        await message.reply_text(
+            "🎉 **अभिनंदन! तुमचे खाते यशस्वीरीत्या Verify झाले आहे.**\n\nआता तुम्हाला चॅनलचे सर्व मेसेजेस व नोटिफिकेशन्स थेट मिळतील.",
+            reply_markup=buttons
+        )
+    else:
+        await message.reply_text("👋 हा Bot चॅनलच्या सर्व Join Requests आपोआप accept करतो.")
 
 @app.on_message(filters.command("ping"))
 async def ping_cmd(client: Client, message: Message):
@@ -174,7 +196,7 @@ async def my_channels_cmd(client: Client, message: Message):
     await message.reply_text(res)
 
 
-# 3. ADVANCED BROADCAST (Photo, Video, Text - No Forward Tag)
+# 3. ADVANCED BROADCAST (Photo, Video, Text - Direct Copy)
 @app.on_message(filters.command("broadcast") & filters.create(is_admin))
 async def broadcast_handler(client: Client, message: Message):
     target_msg = message.reply_to_message if message.reply_to_message else None
@@ -230,7 +252,7 @@ async def broadcast_handler(client: Client, message: Message):
     )
 
 
-# 4. FORWARD BROADCAST (With Forward Tag)
+# 4. FORWARD BROADCAST (Forward Tag सह)
 @app.on_message(filters.command("fbroadcast") & filters.create(is_admin))
 async def forward_broadcast(client: Client, message: Message):
     if not message.reply_to_message:
@@ -320,7 +342,7 @@ async def help_cmd(client: Client, message: Message):
     await message.reply_text(help_text)
 
 
-# Continuous Running Setup (हा भाग बॉटला २४ तास ॲक्टिव्ह ठेवतो)
+# Continuous Running Loop
 async def main():
     await app.start()
     await setup_admin_menu()
