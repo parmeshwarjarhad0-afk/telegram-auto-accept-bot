@@ -26,19 +26,32 @@ broadcast_col = db["last_broadcast"]
 
 app = Client("auto_accept_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Defaults
-DEFAULT_WELCOME = "Hello! Your request to join the channel has been approved."
+# Default Backup Link
 DEFAULT_BACKUP = "https://t.me/+zBROkdncuC5iMzdl"
 
-async def get_settings():
+# 3 Languages Messages
+WELCOME_MULTI_LANG = (
+    "✅ **Request Approved! / विनंती स्वीकारली! / अनुरोध स्वीकृत!**\n\n"
+    "🇬🇧 **English:** Your request to join the channel has been approved. Make sure to click **'Verify Account'** below to receive all future updates.\n\n"
+    "🇮🇳 **मराठी:** चॅनलमधील तुमची विनंती स्वीकारली गेली आहे. पुढील सर्व अपडेट्स मिळवण्यासाठी खालील **'Verify Account'** बटणावर नक्की क्लिक करा.\n\n"
+    "🇮🇳 **हिंदी:** चैनल में आपका अनुरोध स्वीकार कर लिया गया है। आगे के सभी अपडेट्स पाने के लिए नीचे दिए गए **'Verify Account'** बटन पर अवश्य क्लिक करें।"
+)
+
+REMINDER_MULTI_LANG = (
+    "🔔 **Reminder / आठवण / रिमाइंडर**\n\n"
+    "🇬🇧 **English:** You joined the channel 5 days ago but haven't verified your account yet. Click below to verify.\n\n"
+    "🇮🇳 **मराठी:** तुम्ही ५ दिवसांपूर्वी चॅनल जॉईन केले आहे पण अद्याप अकाउंट व्हेरिफाय केलेले नाही. अपडेट्ससाठी खालील बटणावर क्लिक करा.\n\n"
+    "🇮🇳 **हिंदी:** आपने ५ दिन पहले चैनल जॉइन किया था लेकिन अभी तक अकाउंट वेरिफाई नहीं किया है। अपडेट्स के लिए नीचे क्लिक करें।"
+)
+
+async def get_backup_link():
     settings = await settings_col.find_one({"_id": "bot_settings"})
     if not settings:
-        data = {"_id": "bot_settings", "welcome": DEFAULT_WELCOME, "backup": DEFAULT_BACKUP}
+        data = {"_id": "bot_settings", "backup": DEFAULT_BACKUP}
         await settings_col.insert_one(data)
-        return data
-    return settings
+        return DEFAULT_BACKUP
+    return settings.get("backup", DEFAULT_BACKUP)
 
-# Admin Setup: Admin-only commands menu
 async def setup_admin_menu():
     admin_commands = [
         BotCommand("start", "Start Bot"),
@@ -46,7 +59,6 @@ async def setup_admin_menu():
         BotCommand("users", "Total Users"),
         BotCommand("ping", "Response Latency"),
         BotCommand("backup", "Change Backup Link"),
-        BotCommand("setwelcome", "Set Welcome Message"),
         BotCommand("broadcast", "Send Text/Media Broadcast"),
         BotCommand("fbroadcast", "Send Forward Broadcast"),
         BotCommand("delete", "Delete Last Broadcast"),
@@ -60,48 +72,51 @@ async def setup_admin_menu():
     except Exception as e:
         print(f"Error setting admin commands: {e}")
 
-# Admin Filter
 def is_admin(_, __, message: Message):
     return message.from_user and message.from_user.id == ADMIN_ID
 
 
-# 1. AUTO ACCEPT JOIN REQUESTS (With Verify Button)
+# 1. AUTO ACCEPT JOIN REQUESTS (Tri-Lingual Welcome)
 @app.on_chat_join_request()
 async def auto_accept(client: Client, req: ChatJoinRequest):
     user_id = req.from_user.id
     chat_id = req.chat.id
+    current_time = time.time()
     
-    # 1. Save user ID permanently in Database
-    await users_col.update_one({"user_id": user_id}, {"$set": {"user_id": user_id}}, upsert=True)
+    # Save User Details
+    await users_col.update_one(
+        {"user_id": user_id},
+        {
+            "$setOnInsert": {
+                "user_id": user_id,
+                "joined_at": current_time,
+                "is_verified": False,
+                "reminder_sent": False
+            }
+        },
+        upsert=True
+    )
     
-    # 2. Approve Request
+    # Approve Request
     try:
         await client.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
     except Exception as e:
         print(f"Approve Error: {e}")
 
-    # 3. Send Welcome Message, Verify Button & Backup Link
-    settings = await get_settings()
-    welcome_text = settings.get("welcome", DEFAULT_WELCOME)
-    backup_link = settings.get("backup", DEFAULT_BACKUP)
-    
+    # Send Multi-Language Message
+    backup_link = await get_backup_link()
     bot_info = await client.get_me()
-    bot_username = bot_info.username
-    verify_link = f"https://t.me/{bot_username}?start=verified"
+    verify_link = f"https://t.me/{bot_info.username}?start=verified"
 
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Verify Account / Start Chat", url=verify_link)],
+        [InlineKeyboardButton("✅ Verify Account / खाते अधिकृत करा", url=verify_link)],
         [InlineKeyboardButton("🔗 Join Backup Channel", url=backup_link)]
     ])
     
     try:
         await client.send_message(
             chat_id=user_id,
-            text=(
-                f"{welcome_text}\n\n"
-                f"⚠️ **Important:** To receive all future updates without interruption, make sure to click the **'Verify Account'** button below.\n\n"
-                f"👉 **Backup Channel:** {backup_link}"
-            ),
+            text=f"{WELCOME_MULTI_LANG}\n\n👉 **Backup Channel:** {backup_link}",
             reply_markup=buttons,
             disable_web_page_preview=True
         )
@@ -109,38 +124,97 @@ async def auto_accept(client: Client, req: ChatJoinRequest):
         print(f"Direct Message Error: {e}")
 
 
-# 2. BOT COMMANDS
-
+# 2. START / VERIFICATION HANDLER
 @app.on_message(filters.command("start"))
 async def start_cmd(client: Client, message: Message):
     user_id = message.from_user.id
-    await users_col.update_one({"user_id": user_id}, {"$set": {"user_id": user_id}}, upsert=True)
+    
+    # Verify झाल्यावर is_verified = True होईल
+    await users_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"user_id": user_id, "is_verified": True}},
+        upsert=True
+    )
     
     if len(message.command) > 1 and message.command[1] == "verified":
-        settings = await get_settings()
-        backup_link = settings.get("backup", DEFAULT_BACKUP)
+        backup_link = await get_backup_link()
         buttons = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Join Backup Channel", url=backup_link)]])
         
-        await message.reply_text(
-            "🎉 **Congratulations! Your account has been verified successfully.**\n\nNow you will directly receive all channel messages and notifications.",
-            reply_markup=buttons
+        verified_text = (
+            "🎉 **Account Verified Successfully!**\n\n"
+            "🇬🇧 Now you will directly receive all channel updates.\n"
+            "🇮🇳 आता तुम्हाला चॅनलचे सर्व अपडेट्स थेट मिळतील.\n"
+            "🇮🇳 अब आपको चैनल के सभी अपडेट्स सीधे मिलेंगे।"
         )
+        await message.reply_text(verified_text, reply_markup=buttons)
     else:
         await message.reply_text("👋 Hello! This bot automatically approves channel join requests.")
 
+
+# 3. 5-DAY AUTO REMINDER (Tri-Lingual Reminder)
+async def auto_verify_reminder_task():
+    while True:
+        try:
+            five_days_ago = time.time() - (5 * 24 * 60 * 60) # ५ दिवस
+            
+            # फक्त ज्यांचे is_verified False आहे आणि ज्यांना रीमाइंडर गेलेला नाही
+            query = {
+                "joined_at": {"$lte": five_days_ago},
+                "is_verified": False,
+                "reminder_sent": False
+            }
+            
+            bot_info = await app.get_me()
+            verify_link = f"https://t.me/{bot_info.username}?start=verified"
+            backup_link = await get_backup_link()
+
+            buttons = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Verify Account / खाते अधिकृत करा", url=verify_link)],
+                [InlineKeyboardButton("🔗 Join Backup Channel", url=backup_link)]
+            ])
+
+            cursor = users_col.find(query)
+            async for user in cursor:
+                uid = user["user_id"]
+                try:
+                    await app.send_message(
+                        chat_id=uid,
+                        text=f"{REMINDER_MULTI_LANG}\n\n👉 **Backup Channel:** {backup_link}",
+                        reply_markup=buttons,
+                        disable_web_page_preview=True
+                    )
+                    await users_col.update_one({"user_id": uid}, {"$set": {"reminder_sent": True}})
+                    await asyncio.sleep(0.1)
+                except Exception:
+                    await users_col.update_one({"user_id": uid}, {"$set": {"reminder_sent": True}})
+
+        except Exception as e:
+            print(f"Reminder loop error: {e}")
+
+        # दर ३ तासांनी तपासणे
+        await asyncio.sleep(3 * 3600)
+
+
+# 4. ADMIN & MANAGEMENT COMMANDS
 @app.on_message(filters.command("ping"))
 async def ping_cmd(client: Client, message: Message):
     start_time = time.time()
     msg = await message.reply_text("Pinging...")
-    end_time = time.time()
-    latency = round((end_time - start_time) * 1000, 2)
+    latency = round((time.time() - start_time) * 1000, 2)
     await msg.edit_text(f"🏓 **Pong!** Latency: `{latency}ms`")
 
 @app.on_message(filters.command("stats") & filters.create(is_admin))
 async def stats_cmd(client: Client, message: Message):
     total_users = await users_col.count_documents({})
+    verified_users = await users_col.count_documents({"is_verified": True})
     total_channels = await channels_col.count_documents({})
-    await message.reply_text(f"📊 **Bot Statistics:**\n\n👥 Total Users: `{total_users}`\n📢 Registered Channels: `{total_channels}`")
+    await message.reply_text(
+        f"📊 **Bot Statistics:**\n\n"
+        f"👥 Total Users: `{total_users}`\n"
+        f"✅ Verified Users: `{verified_users}`\n"
+        f"⏳ Unverified Users: `{total_users - verified_users}`\n"
+        f"📢 Registered Channels: `{total_channels}`"
+    )
 
 @app.on_message(filters.command("users") & filters.create(is_admin))
 async def users_cmd(client: Client, message: Message):
@@ -155,18 +229,10 @@ async def set_backup_link(client: Client, message: Message):
     await settings_col.update_one({"_id": "bot_settings"}, {"$set": {"backup": link}}, upsert=True)
     await message.reply_text(f"✅ Backup link updated successfully:\n`{link}`")
 
-@app.on_message(filters.command("setwelcome") & filters.create(is_admin))
-async def set_welcome_msg(client: Client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text("Usage: `/setwelcome type your new welcome message here`")
-    new_text = message.text.split(None, 1)[1]
-    await settings_col.update_one({"_id": "bot_settings"}, {"$set": {"welcome": new_text}}, upsert=True)
-    await message.reply_text("✅ Welcome Message updated successfully!")
-
 @app.on_message(filters.command("addchannel"))
 async def add_channel_cmd(client: Client, message: Message):
     if len(message.command) < 2:
-        return await message.reply_text("Usage: `/addchannel -100xxxxxxxxxx`\n\n(Note: Make sure the bot is an Admin in the channel first.)")
+        return await message.reply_text("Usage: `/addchannel -100xxxxxxxxxx`\n\n(Note: Bot must be channel Admin first.)")
     try:
         chat_id = int(message.command[1])
         member = await client.get_chat_member(chat_id, (await client.get_me()).id)
@@ -178,7 +244,7 @@ async def add_channel_cmd(client: Client, message: Message):
             )
             await message.reply_text(f"✅ Channel `{chat_id}` has been registered successfully!")
         else:
-            await message.reply_text("❌ Bot does not have 'Invite Users via Link' admin rights in this channel.")
+            await message.reply_text("❌ Bot does not have 'Invite Users via Link' admin rights.")
     except Exception as e:
         await message.reply_text(f"❌ Error: {e}")
 
@@ -196,17 +262,16 @@ async def my_channels_cmd(client: Client, message: Message):
     await message.reply_text(res)
 
 
-# 3. ADVANCED BROADCAST (Photo, Video, Text - Direct Copy)
+# 5. BROADCAST HANDLERS
 @app.on_message(filters.command("broadcast") & filters.create(is_admin))
 async def broadcast_handler(client: Client, message: Message):
     target_msg = message.reply_to_message if message.reply_to_message else None
     text_content = message.text.split(None, 1)[1] if len(message.command) > 1 else None
 
     if not target_msg and not text_content:
-        return await message.reply_text("❌ Please reply to any message/media with `/broadcast` or type `/broadcast <message>`.")
+        return await message.reply_text("❌ Reply to a message with `/broadcast` or type `/broadcast text`.")
 
     await broadcast_col.delete_many({})
-
     status_msg = await message.reply_text("🚀 Starting broadcast...")
     users = users_col.find({})
     success, failed = 0, 0
@@ -248,11 +313,9 @@ async def broadcast_handler(client: Client, message: Message):
     await status_msg.edit_text(
         f"✅ **Broadcast Completed!**\n\n"
         f"📤 Successful: `{success}`\n"
-        f"🚫 Failed (Blocked/Deleted): `{failed}`"
+        f"🚫 Failed: `{failed}`"
     )
 
-
-# 4. FORWARD BROADCAST (With Forward Tag)
 @app.on_message(filters.command("fbroadcast") & filters.create(is_admin))
 async def forward_broadcast(client: Client, message: Message):
     if not message.reply_to_message:
@@ -295,12 +358,9 @@ async def forward_broadcast(client: Client, message: Message):
         f"🚫 Failed: `{failed}`"
     )
 
-
-# 5. DELETE LAST BROADCAST (Direct from MongoDB)
 @app.on_message(filters.command("delete") & filters.create(is_admin))
 async def delete_last_broadcast(client: Client, message: Message):
     records = await broadcast_col.find({}).to_list(length=None)
-    
     if not records:
         return await message.reply_text("❌ No recent broadcast records found to delete.")
 
@@ -324,8 +384,6 @@ async def delete_last_broadcast(client: Client, message: Message):
     await broadcast_col.delete_many({})
     await msg.edit_text(f"✅ Successfully deleted the last broadcast for `{deleted}` users!")
 
-
-# 6. RESTART & HELP
 @app.on_message(filters.command("restart") & filters.create(is_admin))
 async def restart_bot(client: Client, message: Message):
     await message.reply_text("🔄 Bot is restarting...")
@@ -337,15 +395,16 @@ async def help_cmd(client: Client, message: Message):
         "📖 **Bot Help & Guide:**\n\n"
         "1. Promote the bot to Admin in your channel with 'Invite Users via Link' permission.\n"
         "2. Add your channel using `/addchannel <Channel_ID>`.\n"
-        "3. All incoming join requests will be automatically approved, and users will receive a welcome message."
+        "3. All incoming join requests will be automatically approved."
     )
     await message.reply_text(help_text)
 
 
-# Continuous Running Loop
+# Main Execution
 async def main():
     await app.start()
     await setup_admin_menu()
+    asyncio.create_task(auto_verify_reminder_task())
     print("Bot is up and running successfully!")
     await idle()
     await app.stop()
