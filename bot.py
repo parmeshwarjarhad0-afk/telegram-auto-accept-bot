@@ -1,7 +1,7 @@
 import os
 import time
 import asyncio
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import (
     Message, ChatJoinRequest, BotCommand, 
     BotCommandScopeChat, InlineKeyboardMarkup, InlineKeyboardButton
@@ -26,7 +26,7 @@ broadcast_col = db["last_broadcast"]
 
 app = Client("auto_accept_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Defaults (तुमची बॅकअप लिंक)
+# Defaults
 DEFAULT_WELCOME = "नमस्कार! चॅनलमधील तुमची विनंती स्वीकारली गेली आहे. खाली दिलेल्या बॅकअप चॅनलला नक्की जॉईन करा."
 DEFAULT_BACKUP = "https://t.me/+zBROkdncuC5iMzdl"
 
@@ -183,7 +183,6 @@ async def broadcast_handler(client: Client, message: Message):
     if not target_msg and not text_content:
         return await message.reply_text("❌ कोणत्याही मेसेज/फोटो/व्हिडिओला Reply करून `/broadcast` पाठवा किंवा `/broadcast मजकूर` टाईप करा.")
 
-    # जुना डिलीट डेटाबेस रिकामा करणे
     await broadcast_col.delete_many({})
 
     status_msg = await message.reply_text("🚀 ब्रॉडकास्ट सुरू होत आहे...")
@@ -217,7 +216,6 @@ async def broadcast_handler(client: Client, message: Message):
         except Exception:
             failed += 1
 
-        # दर ५० मेसेजनंतर बॅच MongoDB मध्ये सेव्ह करणे
         if len(broadcast_batch) >= 50:
             await broadcast_col.insert_many(broadcast_batch)
             broadcast_batch = []
@@ -322,11 +320,13 @@ async def help_cmd(client: Client, message: Message):
     await message.reply_text(help_text)
 
 
-# Bot Startup
-async def on_startup():
+# Continuous Running Setup (हा भाग बॉटला २४ तास ॲक्टिव्ह ठेवतो)
+async def main():
     await app.start()
     await setup_admin_menu()
     print("Bot is up and running successfully!")
+    await idle()
+    await app.stop()
 
 if __name__ == "__main__":
-    app.run(on_startup())
+    app.run(main())
