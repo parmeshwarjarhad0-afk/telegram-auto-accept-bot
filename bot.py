@@ -39,9 +39,9 @@ WELCOME_MULTI_LANG = (
 
 REMINDER_MULTI_LANG = (
     "🔔 **Reminder / आठवण / रिमाइंडर**\n\n"
-    "🇬🇧 **English:** You joined the channel 5 days ago but haven't verified your account yet. Click below to verify.\n\n"
-    "🇮🇳 **मराठी:** तुम्ही ५ दिवसांपूर्वी चॅनल जॉईन केले आहे पण अद्याप अकाउंट व्हेरिफाय केलेले नाही. अपडेट्ससाठी खालील बटणावर क्लिक करा.\n\n"
-    "🇮🇳 **हिंदी:** आपने ५ दिन पहले चैनल जॉइन किया था लेकिन अभी तक अकाउंट वेरिफाई नहीं किया है। अपडेट्स के लिए नीचे क्लिक करें।"
+    "🇬🇧 **English:** You joined the channel 1 day ago but haven't verified your account yet. Click below to verify.\n\n"
+    "🇮🇳 **मराठी:** तुम्ही १ दिवसापूर्वी चॅनल जॉईन केले आहे पण अद्याप अकाउंट व्हेरिफाय केलेले नाही. अपडेट्ससाठी खालील बटणावर क्लिक करा.\n\n"
+    "🇮🇳 **हिंदी:** आपने १ दिन पहले चैनल जॉइन किया था लेकिन अभी तक अकाउंट वेरिफाई नहीं किया है। अपडेट्स के लिए नीचे क्लिक करें।"
 )
 
 async def get_backup_link():
@@ -76,7 +76,7 @@ def is_admin(_, __, message: Message):
     return message.from_user and message.from_user.id == ADMIN_ID
 
 
-# 1. AUTO ACCEPT JOIN REQUESTS (Tri-Lingual Welcome)
+# 1. AUTO ACCEPT JOIN REQUESTS
 @app.on_chat_join_request()
 async def auto_accept(client: Client, req: ChatJoinRequest):
     user_id = req.from_user.id
@@ -103,7 +103,7 @@ async def auto_accept(client: Client, req: ChatJoinRequest):
     except Exception as e:
         print(f"Approve Error: {e}")
 
-    # Send Multi-Language Message
+    # Send Welcome Message
     backup_link = await get_backup_link()
     bot_info = await client.get_me()
     verify_link = f"https://t.me/{bot_info.username}?start=verified"
@@ -129,7 +129,6 @@ async def auto_accept(client: Client, req: ChatJoinRequest):
 async def start_cmd(client: Client, message: Message):
     user_id = message.from_user.id
     
-    # Verify झाल्यावर is_verified = True होईल
     await users_col.update_one(
         {"user_id": user_id},
         {"$set": {"user_id": user_id, "is_verified": True}},
@@ -151,15 +150,14 @@ async def start_cmd(client: Client, message: Message):
         await message.reply_text("👋 Hello! This bot automatically approves channel join requests.")
 
 
-# 3. 5-DAY AUTO REMINDER (Tri-Lingual Reminder)
+# 3. 1-DAY AUTO REMINDER BACKGROUND TASK
 async def auto_verify_reminder_task():
     while True:
         try:
-            five_days_ago = time.time() - (5 * 24 * 60 * 60) # ५ दिवस
+            one_day_ago = time.time() - (1 * 24 * 60 * 60) # १ दिवस = ८६,४०० सेकंद
             
-            # फक्त ज्यांचे is_verified False आहे आणि ज्यांना रीमाइंडर गेलेला नाही
             query = {
-                "joined_at": {"$lte": five_days_ago},
+                "joined_at": {"$lte": one_day_ago},
                 "is_verified": False,
                 "reminder_sent": False
             }
@@ -191,8 +189,8 @@ async def auto_verify_reminder_task():
         except Exception as e:
             print(f"Reminder loop error: {e}")
 
-        # दर ३ तासांनी तपासणे
-        await asyncio.sleep(3 * 3600)
+        # दर १ तासाने डेटाबेस तपासा
+        await asyncio.sleep(3600)
 
 
 # 4. ADMIN & MANAGEMENT COMMANDS
