@@ -27,7 +27,7 @@ broadcast_col = db["last_broadcast"]
 app = Client("auto_accept_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Defaults
-DEFAULT_WELCOME = "नमस्कार! चॅनलमधील तुमची विनंती स्वीकारली गेली आहे."
+DEFAULT_WELCOME = "Hello! Your request to join the channel has been approved."
 DEFAULT_BACKUP = "https://t.me/+zBROkdncuC5iMzdl"
 
 async def get_settings():
@@ -71,16 +71,16 @@ async def auto_accept(client: Client, req: ChatJoinRequest):
     user_id = req.from_user.id
     chat_id = req.chat.id
     
-    # 1. Database मध्ये user कायमस्वरूपी save करणे
+    # 1. Save user ID permanently in Database
     await users_col.update_one({"user_id": user_id}, {"$set": {"user_id": user_id}}, upsert=True)
     
-    # 2. Request Accept करणे
+    # 2. Approve Request
     try:
         await client.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
     except Exception as e:
         print(f"Approve Error: {e}")
 
-    # 3. Welcome Message, Verify Button व Backup Link पाठवणे
+    # 3. Send Welcome Message, Verify Button & Backup Link
     settings = await get_settings()
     welcome_text = settings.get("welcome", DEFAULT_WELCOME)
     backup_link = settings.get("backup", DEFAULT_BACKUP)
@@ -99,7 +99,7 @@ async def auto_accept(client: Client, req: ChatJoinRequest):
             chat_id=user_id,
             text=(
                 f"{welcome_text}\n\n"
-                f"⚠️ **महत्त्वाचे:** पुढील सर्व अपडेट्स अखंड मिळवण्यासाठी खालील **'Verify Account'** बटणावर नक्की क्लिक करा.\n\n"
+                f"⚠️ **Important:** To receive all future updates without interruption, make sure to click the **'Verify Account'** button below.\n\n"
                 f"👉 **Backup Channel:** {backup_link}"
             ),
             reply_markup=buttons,
@@ -122,11 +122,11 @@ async def start_cmd(client: Client, message: Message):
         buttons = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Join Backup Channel", url=backup_link)]])
         
         await message.reply_text(
-            "🎉 **अभिनंदन! तुमचे खाते यशस्वीरीत्या Verify झाले आहे.**\n\nआता तुम्हाला चॅनलचे सर्व मेसेजेस व नोटिफिकेशन्स थेट मिळतील.",
+            "🎉 **Congratulations! Your account has been verified successfully.**\n\nNow you will directly receive all channel messages and notifications.",
             reply_markup=buttons
         )
     else:
-        await message.reply_text("👋 हा Bot चॅनलच्या सर्व Join Requests आपोआप accept करतो.")
+        await message.reply_text("👋 Hello! This bot automatically approves channel join requests.")
 
 @app.on_message(filters.command("ping"))
 async def ping_cmd(client: Client, message: Message):
@@ -150,23 +150,23 @@ async def users_cmd(client: Client, message: Message):
 @app.on_message(filters.command("backup") & filters.create(is_admin))
 async def set_backup_link(client: Client, message: Message):
     if len(message.command) < 2:
-        return await message.reply_text("वापर: `/backup https://t.me/your_channel`")
+        return await message.reply_text("Usage: `/backup https://t.me/your_channel`")
     link = message.command[1]
     await settings_col.update_one({"_id": "bot_settings"}, {"$set": {"backup": link}}, upsert=True)
-    await message.reply_text(f"✅ Backup link अपडेट झाली:\n`{link}`")
+    await message.reply_text(f"✅ Backup link updated successfully:\n`{link}`")
 
 @app.on_message(filters.command("setwelcome") & filters.create(is_admin))
 async def set_welcome_msg(client: Client, message: Message):
     if len(message.command) < 2:
-        return await message.reply_text("वापर: `/setwelcome मेसेज इथे लिहा`")
+        return await message.reply_text("Usage: `/setwelcome type your new welcome message here`")
     new_text = message.text.split(None, 1)[1]
     await settings_col.update_one({"_id": "bot_settings"}, {"$set": {"welcome": new_text}}, upsert=True)
-    await message.reply_text("✅ Welcome Message यशस्वीरीत्या सेट झाला!")
+    await message.reply_text("✅ Welcome Message updated successfully!")
 
 @app.on_message(filters.command("addchannel"))
 async def add_channel_cmd(client: Client, message: Message):
     if len(message.command) < 2:
-        return await message.reply_text("वापर: `/addchannel -100xxxxxxxxxx`\n\n(टीप: Bot ला आधी चॅनलमध्ये Admin बनवा.)")
+        return await message.reply_text("Usage: `/addchannel -100xxxxxxxxxx`\n\n(Note: Make sure the bot is an Admin in the channel first.)")
     try:
         chat_id = int(message.command[1])
         member = await client.get_chat_member(chat_id, (await client.get_me()).id)
@@ -176,23 +176,23 @@ async def add_channel_cmd(client: Client, message: Message):
                 {"$set": {"chat_id": chat_id, "added_by": message.from_user.id}},
                 upsert=True
             )
-            await message.reply_text(f"✅ चॅनल `{chat_id}` यशस्वीरीत्या रजिस्टर झाले आहे!")
+            await message.reply_text(f"✅ Channel `{chat_id}` has been registered successfully!")
         else:
-            await message.reply_text("❌ Bot कडे चॅनलमध्ये 'Invite Users via Link' चे Admin Rights नाहीत.")
+            await message.reply_text("❌ Bot does not have 'Invite Users via Link' admin rights in this channel.")
     except Exception as e:
-        await message.reply_text(f"❌ त्रुटी: {e}")
+        await message.reply_text(f"❌ Error: {e}")
 
 @app.on_message(filters.command("mychannels"))
 async def my_channels_cmd(client: Client, message: Message):
     user_id = message.from_user.id
     channels = channels_col.find({"added_by": user_id})
-    res = "📢 **तुमची जोडलेली चॅनेल्स:**\n\n"
+    res = "📢 **Your Registered Channels:**\n\n"
     count = 0
     async for c in channels:
         count += 1
         res += f"{count}. `{c['chat_id']}`\n"
     if count == 0:
-        res = "❌ तुम्ही अद्याप कोणतेही चॅनल ॲड केलेले नाही."
+        res = "❌ You haven't added any channels yet."
     await message.reply_text(res)
 
 
@@ -203,11 +203,11 @@ async def broadcast_handler(client: Client, message: Message):
     text_content = message.text.split(None, 1)[1] if len(message.command) > 1 else None
 
     if not target_msg and not text_content:
-        return await message.reply_text("❌ कोणत्याही मेसेज/फोटो/व्हिडिओला Reply करून `/broadcast` पाठवा किंवा `/broadcast मजकूर` टाईप करा.")
+        return await message.reply_text("❌ Please reply to any message/media with `/broadcast` or type `/broadcast <message>`.")
 
     await broadcast_col.delete_many({})
 
-    status_msg = await message.reply_text("🚀 ब्रॉडकास्ट सुरू होत आहे...")
+    status_msg = await message.reply_text("🚀 Starting broadcast...")
     users = users_col.find({})
     success, failed = 0, 0
     broadcast_batch = []
@@ -246,20 +246,20 @@ async def broadcast_handler(client: Client, message: Message):
         await broadcast_col.insert_many(broadcast_batch)
 
     await status_msg.edit_text(
-        f"✅ **ब्रॉडकास्ट पूर्ण!**\n\n"
-        f"📤 यशस्वी: `{success}`\n"
-        f"🚫 अयशस्वी (Blocked/Deleted): `{failed}`"
+        f"✅ **Broadcast Completed!**\n\n"
+        f"📤 Successful: `{success}`\n"
+        f"🚫 Failed (Blocked/Deleted): `{failed}`"
     )
 
 
-# 4. FORWARD BROADCAST (Forward Tag सह)
+# 4. FORWARD BROADCAST (With Forward Tag)
 @app.on_message(filters.command("fbroadcast") & filters.create(is_admin))
 async def forward_broadcast(client: Client, message: Message):
     if not message.reply_to_message:
-        return await message.reply_text("मेसेजला reply करून `/fbroadcast` टाईप करा.")
+        return await message.reply_text("Please reply to a message with `/fbroadcast`.")
 
     await broadcast_col.delete_many({})
-    status_msg = await message.reply_text("🚀 फॉरवर्ड ब्रॉडकास्ट सुरू होत आहे...")
+    status_msg = await message.reply_text("🚀 Starting forward broadcast...")
     
     users = users_col.find({})
     success, failed = 0, 0
@@ -290,9 +290,9 @@ async def forward_broadcast(client: Client, message: Message):
         await broadcast_col.insert_many(broadcast_batch)
 
     await status_msg.edit_text(
-        f"✅ **फॉरवर्ड ब्रॉडकास्ट पूर्ण!**\n\n"
-        f"📤 यशस्वी: `{success}`\n"
-        f"🚫 अयशस्वी: `{failed}`"
+        f"✅ **Forward Broadcast Completed!**\n\n"
+        f"📤 Successful: `{success}`\n"
+        f"🚫 Failed: `{failed}`"
     )
 
 
@@ -302,9 +302,9 @@ async def delete_last_broadcast(client: Client, message: Message):
     records = await broadcast_col.find({}).to_list(length=None)
     
     if not records:
-        return await message.reply_text("❌ डिलीट करण्यासाठी कोणताही अलीकडचा ब्रॉडकास्ट डेटा सापडला नाही.")
+        return await message.reply_text("❌ No recent broadcast records found to delete.")
 
-    msg = await message.reply_text("🗑️ सर्व युझर्सकडून मेसेज डिलीट करणे सुरू आहे...")
+    msg = await message.reply_text("🗑️ Deleting broadcast messages from all users...")
     deleted = 0
 
     for item in records:
@@ -322,22 +322,22 @@ async def delete_last_broadcast(client: Client, message: Message):
             pass
 
     await broadcast_col.delete_many({})
-    await msg.edit_text(f"✅ एकूण `{deleted}` युझर्सच्या इनबॉक्समधून शेवटचा ब्रॉडकास्ट डिलीट केला गेला!")
+    await msg.edit_text(f"✅ Successfully deleted the last broadcast for `{deleted}` users!")
 
 
 # 6. RESTART & HELP
 @app.on_message(filters.command("restart") & filters.create(is_admin))
 async def restart_bot(client: Client, message: Message):
-    await message.reply_text("🔄 Bot रीस्टार्ट होत आहे...")
+    await message.reply_text("🔄 Bot is restarting...")
     os._exit(0)
 
 @app.on_message(filters.command("help"))
 async def help_cmd(client: Client, message: Message):
     help_text = (
-        "📖 **Bot मदत केंद्र:**\n\n"
-        "1. Bot ला चॅनलमध्ये Admin करा आणि 'Invite Users via Link' परवानगी द्या.\n"
-        "2. `/addchannel <Channel_ID>` ने चॅनल जोडा.\n"
-        "3. चॅनलवर येणाऱ्या सर्व Join Requests आपोआप स्वीकारल्या जातील व युझरला वेलकम मेसेज पाठवला जाईल."
+        "📖 **Bot Help & Guide:**\n\n"
+        "1. Promote the bot to Admin in your channel with 'Invite Users via Link' permission.\n"
+        "2. Add your channel using `/addchannel <Channel_ID>`.\n"
+        "3. All incoming join requests will be automatically approved, and users will receive a welcome message."
     )
     await message.reply_text(help_text)
 
