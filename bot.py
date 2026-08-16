@@ -14,7 +14,7 @@ API_ID = int(os.environ.get("API_ID", "123456"))
 API_HASH = os.environ.get("API_HASH", "your_api_hash")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "your_bot_token")
 MONGO_URL = os.environ.get("MONGO_URL", "your_mongodb_connection_string")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))  # Admin/Owner Telegram User ID
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "123456789"))
 
 # --- Database Setup ---
 mongo = AsyncIOMotorClient(MONGO_URL)
@@ -26,9 +26,9 @@ broadcast_col = db["last_broadcast"]
 
 app = Client("auto_accept_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Defaults
+# Defaults (तुमची बॅकअप लिंक)
 DEFAULT_WELCOME = "नमस्कार! चॅनलमधील तुमची विनंती स्वीकारली गेली आहे. खाली दिलेल्या बॅकअप चॅनलला नक्की जॉईन करा."
-DEFAULT_BACKUP = "https://t.me/telegram"
+DEFAULT_BACKUP = "https://t.me/+zBROkdncuC5iMzdl"
 
 async def get_settings():
     settings = await settings_col.find_one({"_id": "bot_settings"})
@@ -217,7 +217,7 @@ async def broadcast_handler(client: Client, message: Message):
         except Exception:
             failed += 1
 
-        # दर ५० मेसेजनंतर डेटाबेसमध्ये बॅच सेव्ह करणे
+        # दर ५० मेसेजनंतर बॅच MongoDB मध्ये सेव्ह करणे
         if len(broadcast_batch) >= 50:
             await broadcast_col.insert_many(broadcast_batch)
             broadcast_batch = []
@@ -317,7 +317,7 @@ async def help_cmd(client: Client, message: Message):
         "📖 **Bot मदत केंद्र:**\n\n"
         "1. Bot ला चॅनलमध्ये Admin करा आणि 'Invite Users via Link' परवानगी द्या.\n"
         "2. `/addchannel <Channel_ID>` ने चॅनल जोडा.\n"
-        "3. चॅनलवर येणाऱ्या सर्व Join Requests आपोआप स्वीकरल्या जातील व युझरला वेलकम मेसेज पाठवला जाईल."
+        "3. चॅनलवर येणाऱ्या सर्व Join Requests आपोआप स्वीकारल्या जातील व युझरला वेलकम मेसेज पाठवला जाईल."
     )
     await message.reply_text(help_text)
 
