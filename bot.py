@@ -26,8 +26,19 @@ broadcast_col = db["last_broadcast"]
 
 app = Client("auto_accept_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Default Backup Link
+# Default Backup Link & Default Category Channels Text (Bold)
 DEFAULT_BACKUP = "https://t.me/+zBROkdncuC5iMzdl"
+
+DEFAULT_CHANNELS_TEXT = (
+    "**Join our other channels👇👇**\n\n"
+    "**1. All Bollywood movies :-** https://t.me/+Wc-qOv0vExAxNWZl\n\n"
+    "**2. All Bollywood webseries :-** https://t.me/+DmQ33kA44AtmYzU9\n\n"
+    "**3. All Hollywood movies :-** https://t.me/+bPzTkLullYEzODZl\n\n"
+    "**4. All Hollywood webseries :-** https://t.me/+VlZHQctV_880ZDE9\n\n"
+    "**5. All South movies :-** https://t.me/+K1GozD1bpy0zZjFl\n\n"
+    "**6. Only New movies :-** https://t.me/+kU6Xa3gfiSxkNzM1\n\n"
+    "**7. All Marathi movies :-** https://t.me/+oXtQAEoMKME0MDk1"
+)
 
 # 3 Languages Messages
 WELCOME_MULTI_LANG = (
@@ -44,13 +55,17 @@ REMINDER_MULTI_LANG = (
     "🇮🇳 **हिंदी:** आपने १ दिन पहले चैनल जॉइन किया था लेकिन अभी तक अकाउंट वेरिफाई नहीं किया है। अपडेट्स के लिए नीचे क्लिक करें।"
 )
 
-async def get_backup_link():
+async def get_settings():
     settings = await settings_col.find_one({"_id": "bot_settings"})
     if not settings:
-        data = {"_id": "bot_settings", "backup": DEFAULT_BACKUP}
+        data = {
+            "_id": "bot_settings", 
+            "backup": DEFAULT_BACKUP,
+            "channels_text": DEFAULT_CHANNELS_TEXT
+        }
         await settings_col.insert_one(data)
-        return DEFAULT_BACKUP
-    return settings.get("backup", DEFAULT_BACKUP)
+        return data
+    return settings
 
 async def setup_admin_menu():
     admin_commands = [
@@ -59,6 +74,7 @@ async def setup_admin_menu():
         BotCommand("users", "Total Users"),
         BotCommand("ping", "Response Latency"),
         BotCommand("backup", "Change Backup Link"),
+        BotCommand("setchannels", "Edit Category Channels List"),
         BotCommand("broadcast", "Send Text/Media Broadcast"),
         BotCommand("fbroadcast", "Send Forward Broadcast"),
         BotCommand("delete", "Delete Last Broadcast"),
@@ -83,7 +99,6 @@ async def auto_accept(client: Client, req: ChatJoinRequest):
     chat_id = req.chat.id
     current_time = time.time()
     
-    # Save User Details
     await users_col.update_one(
         {"user_id": user_id},
         {
@@ -97,14 +112,14 @@ async def auto_accept(client: Client, req: ChatJoinRequest):
         upsert=True
     )
     
-    # Approve Request
     try:
         await client.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
     except Exception as e:
         print(f"Approve Error: {e}")
 
-    # Send Welcome Message
-    backup_link = await get_backup_link()
+    settings = await get_settings()
+    backup_link = settings.get("backup", DEFAULT_BACKUP)
+    
     bot_info = await client.get_me()
     verify_link = f"https://t.me/{bot_info.username}?start=verified"
 
@@ -124,7 +139,7 @@ async def auto_accept(client: Client, req: ChatJoinRequest):
         print(f"Direct Message Error: {e}")
 
 
-# 2. START / VERIFICATION HANDLER
+# 2. START / VERIFICATION HANDLER (Sends Bold Channels List)
 @app.on_message(filters.command("start"))
 async def start_cmd(client: Client, message: Message):
     user_id = message.from_user.id
@@ -135,26 +150,33 @@ async def start_cmd(client: Client, message: Message):
         upsert=True
     )
     
+    settings = await get_settings()
+    backup_link = settings.get("backup", DEFAULT_BACKUP)
+    channels_text = settings.get("channels_text", DEFAULT_CHANNELS_TEXT)
+    buttons = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Join Backup Channel", url=backup_link)]])
+    
     if len(message.command) > 1 and message.command[1] == "verified":
-        backup_link = await get_backup_link()
-        buttons = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Join Backup Channel", url=backup_link)]])
-        
         verified_text = (
             "🎉 **Account Verified Successfully!**\n\n"
             "🇬🇧 Now you will directly receive all channel updates.\n"
             "🇮🇳 आता तुम्हाला चॅनलचे सर्व अपडेट्स थेट मिळतील.\n"
-            "🇮🇳 अब आपको चैनल के सभी अपडेट्स सीधे मिलेंगे।"
+            "🇮🇳 अब आपको चैनल के सभी अपडेट्स सीधे मिलेंगे。\n\n"
+            f"{channels_text}"
         )
-        await message.reply_text(verified_text, reply_markup=buttons)
+        await message.reply_text(verified_text, reply_markup=buttons, disable_web_page_preview=True)
     else:
-        await message.reply_text("👋 Hello! This bot automatically approves channel join requests.")
+        start_msg = (
+            "👋 **Hello! Welcome to the Bot.**\n\n"
+            f"{channels_text}"
+        )
+        await message.reply_text(start_msg, reply_markup=buttons, disable_web_page_preview=True)
 
 
 # 3. 1-DAY AUTO REMINDER BACKGROUND TASK
 async def auto_verify_reminder_task():
     while True:
         try:
-            one_day_ago = time.time() - (1 * 24 * 60 * 60) # १ दिवस = ८६,४०० सेकंद
+            one_day_ago = time.time() - (1 * 24 * 60 * 60)
             
             query = {
                 "joined_at": {"$lte": one_day_ago},
@@ -164,7 +186,8 @@ async def auto_verify_reminder_task():
             
             bot_info = await app.get_me()
             verify_link = f"https://t.me/{bot_info.username}?start=verified"
-            backup_link = await get_backup_link()
+            settings = await get_settings()
+            backup_link = settings.get("backup", DEFAULT_BACKUP)
 
             buttons = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ Verify Account / खाते अधिकृत करा", url=verify_link)],
@@ -189,7 +212,6 @@ async def auto_verify_reminder_task():
         except Exception as e:
             print(f"Reminder loop error: {e}")
 
-        # दर १ तासाने डेटाबेस तपासा
         await asyncio.sleep(3600)
 
 
@@ -226,6 +248,17 @@ async def set_backup_link(client: Client, message: Message):
     link = message.command[1]
     await settings_col.update_one({"_id": "bot_settings"}, {"$set": {"backup": link}}, upsert=True)
     await message.reply_text(f"✅ Backup link updated successfully:\n`{link}`")
+
+@app.on_message(filters.command("setchannels") & filters.create(is_admin))
+async def set_channels_list_cmd(client: Client, message: Message):
+    if len(message.command) < 2:
+        return await message.reply_text(
+            "⚠️ **वापर:** `/setchannels` च्या पुढे तुमचा संपूर्ण नवीन मेसेज आणि लिंक्स लिहा.\n\n"
+            "**उदा:**\n`/setchannels **Join Our Channels:**\n1. Link1\n2. Link2`"
+        )
+    new_text = message.text.split(None, 1)[1]
+    await settings_col.update_one({"_id": "bot_settings"}, {"$set": {"channels_text": new_text}}, upsert=True)
+    await message.reply_text("✅ **Category Channels ची यादी यशस्वीरीत्या अपडेट झाली आहे!**\n\nनवीन मेसेज असा दिसेल:\n\n" + new_text)
 
 @app.on_message(filters.command("addchannel"))
 async def add_channel_cmd(client: Client, message: Message):
